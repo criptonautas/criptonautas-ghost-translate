@@ -2,6 +2,10 @@ const FIELDS = ['title', 'custom_excerpt', 'meta_title', 'meta_description', 'og
 const ctx = $('Context').first().json;
 const src = $('Fetch Source').first().json[ctx.type][0];
 const row = $('Get State').first().json;
+// Without this an unmigrated row reads as a new post, which would duplicate it and pay for a full translation.
+if (!ctx.dry_run && !(row && row.source_id) && $('Known Slugs').all().some((i) => i.json.slug === ctx.slug && !i.json.source_id)) {
+  throw new Error('State row not migrated: ' + ctx.slug);
+}
 const enRes = $('Get English').first().json;
 const en = !ctx.dry_run && enRes && enRes[ctx.type] && enRes[ctx.type][0] ? enRes[ctx.type][0] : null;
 const fields = {};

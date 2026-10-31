@@ -10,7 +10,11 @@ sent.forEach((g, n) => {
   g.ids.forEach((id, k) => { translations[g.kind === 'html' ? 'blocks' : 'fields'][id] = out[k].text; });
 });
 // Dry-run rows are not real English pages, so they must not turn links into en.criptonautas.co.
-const slugs = [...new Set($('Known Slugs').all().map((i) => String(i.json.slug || '')).filter((s) => s && !s.startsWith('dry:')))];
+const slugs = {};
+for (const { json: r } of $('Known Slugs').all()) {
+  // Rows from before the English slugs carry no en_slug: their English slug is still the Spanish one.
+  if (r.slug && !String(r.slug).startsWith('dry:')) slugs[r.slug] = r.en_slug || r.slug;
+}
 // The owner accepts losing the strikethrough in this post's p<s>l</s>andemia wordplay.
 const ALLOW_LOST = { 'expandir-dinero': ['s'] };
 const f = finish({ prepared, translations, slugs, allowLost: ALLOW_LOST[$('Context').first().json.slug] || [] });
@@ -23,5 +27,7 @@ const enRes = $('Get English').first().json;
 const en = enRes && enRes[ctx.type] && enRes[ctx.type][0] ? enRes[ctx.type][0] : null;
 const plan = coverPlan({ esImage: src.feature_image, enImage: en && en.feature_image, cover: old && old.cover });
 // A republish changes nothing but status, so a draft twin must still be written back.
-const write = !prepared.noop || prep[0].old_out !== f.state.out || plan.changed || (Boolean(en) && en.status !== 'published');
+// A renamed slug on either site changes nothing but this block, and it needs no translation.
+const staleHead = Boolean(en) && !(en.codeinjection_head || '').includes(hreflangBlock(src.slug, en.slug));
+const write = !prepared.noop || prep[0].old_out !== f.state.out || plan.changed || (Boolean(en) && en.status !== 'published') || staleHead;
 return [{ json: { ...f, write, cover_plan: plan, noop: prepared.noop, kept: prepared.kept, jobs: sent.length, chars_sent: sent.reduce((a, j) => a + j.chars, 0) } }];

@@ -10,7 +10,6 @@ const drawn = up && up.images && up.images[0] ? up.images[0].url : null;
 const coverUrl = f.cover_plan.mode === 'generate' ? drawn : f.cover_plan.url;
 const body = {
   ...f.fields,
-  slug: src.slug,
   html: f.html,
   status: 'published',
   visibility: 'public',
@@ -18,8 +17,11 @@ const body = {
   featured: Boolean(src.featured),
   feature_image: coverUrl,
   tags: (src.tags || []).map((t) => ({ name: t.name })),
-  codeinjection_head: mergeHead(en && en.codeinjection_head, hreflangBlock(src.slug)),
 };
+// English owns its slug: it is chosen once on create and never sent again.
+const slug = en ? en.slug : slugify(f.fields.title, $('Known Slugs').all().map((i) => i.json.en_slug || i.json.slug));
+if (!en) body.slug = slug;
+body.codeinjection_head = mergeHead(en && en.codeinjection_head, hreflangBlock(src.slug, slug));
 for (const k of Object.keys(f.fields)) if (!f.fields[k]) body[k] = null;
 if (en) body.updated_at = en.updated_at;
 const base = 'https://en.criptonautas.co/ghost/api/admin/' + ctx.type + '/';

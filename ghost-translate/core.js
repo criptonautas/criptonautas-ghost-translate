@@ -102,25 +102,59 @@ function sameShape(a, b, allowLost = []) {
 const ES = 'https://criptonautas.co';
 const EN = 'https://en.criptonautas.co';
 
+// slugs maps a Spanish slug to its English slug; a plain list means both are the same.
 function rewriteLinks(html, slugs, es = ES, en = EN) {
-  const known = new Set(slugs);
+  const known = new Map(Array.isArray(slugs) ? slugs.map((s) => [s, s]) : Object.entries(slugs));
   const esc = es.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp('href="' + esc + '/([^/"?#]*)/?([?#][^"]*)?"', 'g');
   return html.replace(re, (m, slug, tail) => (slug === '' || known.has(slug)
-    ? 'href="' + en + '/' + (slug ? slug + '/' : '') + (tail || '') + '"'
+    ? 'href="' + en + '/' + (slug ? known.get(slug) + '/' : '') + (tail || '') + '"'
     : m));
 }
 
 const I18N = /<!--i18n-->[\s\S]*?<!--\/i18n-->/;
-function hreflangBlock(slug, es = ES, en = EN) {
+function hreflangBlock(slug, enSlug = slug, es = ES, en = EN) {
   return '<!--i18n--><link rel="alternate" hreflang="es" href="' + es + '/' + slug + '/">'
-    + '<link rel="alternate" hreflang="en" href="' + en + '/' + slug + '/">'
+    + '<link rel="alternate" hreflang="en" href="' + en + '/' + enSlug + '/">'
     + '<link rel="alternate" hreflang="x-default" href="' + es + '/' + slug + '/"><!--/i18n-->';
 }
 // Markers keep any code injection the editors added by hand.
 function mergeHead(head, block) {
   const h = head || '';
   return I18N.test(h) ? h.replace(I18N, () => block) : (h ? h + '\n' : '') + block;
+}
+
+// Ghost still suffixes a slug it finds taken, so this only keeps the first try readable.
+function slugify(title, taken = [], max = 60) {
+  const base = String(title || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const cut = base.length <= max ? base : base.slice(0, max).replace(/-[^-]*$/, '');
+  const slug = cut || 'post';
+  const used = new Set(taken);
+  if (!used.has(slug)) return slug;
+  let n = 2;
+  while (used.has(slug + '-' + n)) n++;
+  return slug + '-' + n;
+}
+
+// Joins each state row to both sites by what survives renames: stored ids, then slug, then the Spanish title hash.
+function migrationPlan({ rows, es, en }) {
+  const out = [], problems = [], seen = new Set();
+  for (const row of rows) {
+    if (String(row.slug || '').startsWith('dry:')) continue;
+    const state = row.state ? JSON.parse(row.state) : {};
+    const titleHash = state.fields && state.fields.title && state.fields.title.h;
+    const src = es.find((p) => p.id === row.source_id) || es.find((p) => p.slug === row.slug)
+      || es.find((p) => sha(norm(p.title)) === titleHash);
+    if (!src) { problems.push(row.slug + ': no Spanish post'); continue; }
+    if (seen.has(src.id)) { problems.push(row.slug + ': Spanish post already claimed'); continue; }
+    seen.add(src.id);
+    const twin = en.find((p) => p.id === row.en_id) || en.find((p) => p.slug === row.en_slug)
+      || en.find((p) => p.slug === row.slug) || en.find((p) => p.id === src.id);
+    if (!twin) { problems.push(row.slug + ': no English post'); continue; }
+    out.push({ row_id: row.id, slug: src.slug, source_id: src.id, en_id: twin.id, en_slug: twin.slug });
+  }
+  return { out, problems };
 }
 
 // DeepL accepts at most 50 texts and 128 KiB per request.
@@ -136,7 +170,7 @@ function chunk(jobs, maxTexts = 40, maxChars = 50000) {
   return out;
 }
 
-Object.assign(module.exports, { shape, sameShape, rewriteLinks, hreflangBlock, mergeHead, chunk }); // export
+Object.assign(module.exports, { shape, sameShape, rewriteLinks, hreflangBlock, mergeHead, chunk, slugify }); // export
 
 // File names the cover service produces through Ghost's upload: cover.webp, cover-1.webp, ...
 const GENERATED = /\/cover(-\d+)?\.(webp|png)$/i;
@@ -263,4 +297,4 @@ function snapshot(state, enHtml) {
   return { ...state, enh: en.map(sha), aligned: en.length === state.body.length };
 }
 
-Object.assign(module.exports, { prepare, finish, snapshot }); // export
+Object.assign(module.exports, { prepare, finish, snapshot, migrationPlan }); // export

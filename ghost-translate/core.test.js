@@ -317,7 +317,7 @@ test('a field edited by hand in English is kept while Spanish is unchanged', () 
 
 test('emitted Code node bodies are valid JavaScript and carry no exports', () => {
   const { execFileSync } = require('node:child_process');
-  for (const name of ['prepare', 'finish', 'payload', 'snapshot', 'search-doc', 'source-head', 'search-docs-es', 'search-stale-es']) {
+  for (const name of ['prepare', 'finish', 'payload', 'snapshot', 'search-doc', 'source-head', 'search-docs-es', 'search-stale-es', 'migrate-plan']) {
     const code = execFileSync('node', [__dirname + '/emit-node.js', name], { encoding: 'utf8' });
     assert.doesNotMatch(code, /module\.exports/);
     assert.doesNotThrow(() => new Function('$', '$input', 'require', code), name);
@@ -332,14 +332,14 @@ test('an unchanged post still writes when its English twin is not published', ()
   const first = c.prepare({ fields, html, state: null, en: null });
   const f = c.finish({ prepared: first, translations: { fields: { [first.fields.title.h]: 'Hello' }, blocks: { [first.body[0].h]: '<p>Hello world</p>' } }, slugs: [] });
   const state = c.snapshot(f.state, f.html);
-  const run = (status) => {
-    const en = { status, html: f.html, feature_image: null, title: 'Hello' };
+  const run = (status, enSlug = 'a') => {
+    const en = { status, slug: enSlug, html: f.html, feature_image: null, title: 'Hello', codeinjection_head: c.hreflangBlock('a', 'a') };
     const prepared = c.prepare({ fields, html, state, en: { fields: { title: 'Hello' }, html: f.html } });
     const nodes = {
       'Prepare Translation': { kind: 'none', chars: 0, prepared, old_out: state.out },
       'Known Slugs': { slug: 'a' },
       Context: { slug: 'a', type: 'posts' },
-      'Fetch Source': { posts: [{ feature_image: null }] },
+      'Fetch Source': { posts: [{ slug: 'a', feature_image: null }] },
       'Get State': { state: JSON.stringify(state) },
       'Get English': { posts: [en] },
     };
@@ -353,6 +353,8 @@ test('an unchanged post still writes when its English twin is not published', ()
   assert.equal(run('published').write, false);
   assert.equal(run('draft').write, true);
   assert.equal(run('draft').jobs, 0);
+  assert.equal(run('published', 'hello').write, true);
+  assert.equal(run('published', 'hello').jobs, 0);
 });
 
 const emitted = (name) => require('node:child_process').execFileSync('node', [__dirname + '/emit-node.js', name], { encoding: 'utf8' });
@@ -378,4 +380,63 @@ test('stale docs are listed by id, and a short or empty list aborts', () => {
   assert.deepEqual(run(20, '{"id":"k0"}\n{"id":"old"}\n').map((i) => i.json.id), ['old']);
   assert.throws(() => run(19, '{"id":"old"}'), /refusing/);
   assert.throws(() => run(20, ''), /no ids/);
+});
+
+test('links follow the slug map, and excluded or unknown slugs stay on the Spanish domain', () => {
+  const html = '<a href="https://criptonautas.co/curso/">a</a><a href="https://criptonautas.co/terminos/">b</a><a href="https://criptonautas.co/">c</a>';
+  assert.equal(c.rewriteLinks(html, { curso: 'course' }),
+    '<a href="https://en.criptonautas.co/course/">a</a><a href="https://criptonautas.co/terminos/">b</a><a href="https://en.criptonautas.co/">c</a>');
+});
+
+test('hreflang uses each site own slug', () => {
+  const b = c.hreflangBlock('curso', 'course');
+  assert.match(b, /hreflang="es" href="https:\/\/criptonautas\.co\/curso\/"/);
+  assert.match(b, /hreflang="en" href="https:\/\/en\.criptonautas\.co\/course\/"/);
+  assert.equal(c.hreflangBlock('faq'), c.hreflangBlock('faq', 'faq'));
+});
+
+test('slugify is ascii, bounded, cut on a word and avoids taken slugs', () => {
+  assert.equal(c.slugify('Why Start in Crypto? ¡Año!'), 'why-start-in-crypto-ano');
+  const long = c.slugify('word '.repeat(40));
+  assert.ok(long.length <= 60 && !long.endsWith('-'));
+  assert.equal(c.slugify('Hello', ['hello', 'hello-2']), 'hello-3');
+  assert.equal(c.slugify('!!!'), 'post');
+});
+
+test('migration joins renamed Spanish posts by title hash and is idempotent', () => {
+  const state = JSON.stringify({ fields: { title: { h: c.sha('Para qué') } } });
+  const rows = [{ id: 1, slug: 'viejo', state }, { id: 2, slug: 'dry:x', state: '{}' }, { id: 3, slug: 'faq', state: '{}' }];
+  const es = [{ id: 'A', slug: 'nuevo', title: 'Para qué' }, { id: 'B', slug: 'faq', title: 'FAQ' }];
+  const en = [{ id: 'E1', slug: 'viejo' }, { id: 'B', slug: 'faq-en' }];
+  const { out, problems } = c.migrationPlan({ rows, es, en });
+  assert.deepEqual(problems, []);
+  assert.deepEqual(out, [
+    { row_id: 1, slug: 'nuevo', source_id: 'A', en_id: 'E1', en_slug: 'viejo' },
+    { row_id: 3, slug: 'faq', source_id: 'B', en_id: 'B', en_slug: 'faq-en' },
+  ]);
+  const again = out.map((o) => ({ id: o.row_id, slug: o.slug, source_id: o.source_id, en_id: o.en_id, en_slug: o.en_slug, state: '{}' }));
+  assert.deepEqual(c.migrationPlan({ rows: again, es, en }).out, out);
+  assert.deepEqual(c.migrationPlan({ rows: [{ id: 9, slug: 'nada', state: '{}' }], es, en }).problems, ['nada: no Spanish post']);
+});
+
+test('the English write never sends a slug on PUT and picks one on POST', () => {
+  const code = emitted('payload');
+  const run = (en) => {
+    const nodes = {
+      Context: { type: 'posts' },
+      'Fetch Source': { posts: [{ id: 'S', slug: 'curso', tags: [] }] },
+      'Get English': en ? { posts: [en] } : { errors: [] },
+      'Finish Translation': { fields: { title: 'The Course' }, html: '<p>x</p>', cover_plan: { mode: 'none', url: null } },
+      'Known Slugs': { slug: 'otro', en_slug: 'the-course' },
+    };
+    const $ = (n) => { if (!nodes[n]) throw new Error('not executed'); return { first: () => ({ json: nodes[n] }), all: () => [{ json: nodes[n] }] }; };
+    return new Function('$', '$input', 'require', code)($, {}, require)[0].json;
+  };
+  const put = run({ id: 'E', slug: 'course', updated_at: 'u', codeinjection_head: '' });
+  assert.equal(put.method, 'PUT');
+  assert.equal('slug' in put.body.posts[0], false);
+  assert.match(put.body.posts[0].codeinjection_head, /en\.criptonautas\.co\/course\//);
+  const post = run(null);
+  assert.equal(post.method, 'POST');
+  assert.equal(post.body.posts[0].slug, 'the-course-2');
 });

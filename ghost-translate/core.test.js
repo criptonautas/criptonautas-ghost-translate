@@ -104,3 +104,109 @@ test('searchDoc carries the fields of the ghost collection', () => {
     published_at: Date.parse(en.published_at), updated_at: Date.parse(en.updated_at), visibility: 'public',
   });
 });
+
+const posts = require('./fixtures/posts.json').posts;
+const fake = (t) => t.replace(/>([^<]+)</g, (m, x) => '>EN ' + x + '<'); // keeps tags and links
+const fieldsOf = (p) => ({ title: p.slug, custom_excerpt: p.custom_excerpt, meta_description: p.meta_description });
+function run(input, slugs = []) {
+  const prepared = c.prepare(input);
+  const tr = { fields: {}, blocks: {} };
+  for (const j of prepared.jobs.fields) tr.fields[j.id] = 'EN ' + j.text;
+  for (const j of prepared.jobs.blocks) tr.blocks[j.id] = fake(j.text);
+  return { prepared, f: c.finish({ prepared, translations: tr, slugs }) };
+}
+const firstRun = (p) => {
+  const a = run({ fields: fieldsOf(p), html: p.html, state: null, en: null });
+  const state = c.snapshot(a.f.state, a.f.html);
+  return { a, state, en: { fields: a.f.fields, html: a.f.html } };
+};
+
+test('every real post splits without losing text or links', () => {
+  for (const p of posts) {
+    const joined = c.units(p.html).join('\n');
+    assert.equal(c.textOf(joined), c.textOf(p.html), p.slug);
+    assert.deepEqual(JSON.parse(c.shape(joined)).urls, JSON.parse(c.shape(p.html)).urls, p.slug);
+  }
+});
+
+test('first run translates, second run is a no-op with zero jobs', () => {
+  for (const p of posts) {
+    const { a, state, en } = firstRun(p);
+    assert.equal(a.f.ok, true, p.slug + ': ' + a.f.problems.join('; '));
+    assert.equal(state.aligned, true, p.slug + ' not aligned');
+    const b = c.prepare({ fields: fieldsOf(p), html: p.html, state, en });
+    assert.equal(b.jobs.blocks.length + b.jobs.fields.length, 0, p.slug);
+    assert.equal(b.noop, true, p.slug);
+  }
+});
+
+test('editing one paragraph re-translates exactly one block', () => {
+  const p = posts.find((x) => x.slug === 'patrones');
+  const { state, en } = firstRun(p);
+  const blocks = c.units(p.html);
+  const i = blocks.findIndex((b) => b.startsWith('<p>'));
+  blocks[i] = blocks[i].replace('</p>', ' Nueva frase.</p>');
+  const r = run({ fields: fieldsOf(p), html: blocks.join('\n'), state, en });
+  assert.equal(r.prepared.jobs.blocks.length, 1);
+  assert.equal(r.prepared.jobs.fields.length, 0);
+  assert.equal(r.prepared.noop, false);
+});
+
+test('inserting a paragraph translates only the new one', () => {
+  const p = posts.find((x) => x.slug === 'tor-1');
+  const { state, en } = firstRun(p);
+  const blocks = c.units(p.html);
+  blocks.splice(3, 0, '<p>Inserto nuevo.</p>');
+  const r = run({ fields: fieldsOf(p), html: blocks.join('\n'), state, en });
+  assert.equal(r.prepared.jobs.blocks.length, 1);
+  assert.match(r.f.html, /EN Inserto nuevo\./);
+});
+
+test('a hand edit in English survives a Spanish edit elsewhere, but not in the same block', () => {
+  const p = posts.find((x) => x.slug === 'monero-3');
+  const { state, en } = firstRun(p);
+  const src = c.units(p.html);
+  const text = src.map((b, i) => (c.needsTranslation(b) ? i : -1)).filter((i) => i >= 0);
+  const first = text[0], last = text[text.length - 1];
+  assert.notEqual(first, last);
+  const enBlocks = c.units(en.html);
+  enBlocks[first] = '<p>MANUAL FIX</p>';
+  const enEdited = { fields: en.fields, html: enBlocks.join('\n') };
+  const untouched = c.prepare({ fields: fieldsOf(p), html: p.html, state, en: enEdited });
+  assert.equal(untouched.noop, true);
+  const other = src.slice(); other[last] = other[last].replace('</p>', ' Cambio.</p>');
+  const kept = run({ fields: fieldsOf(p), html: other.join('\n'), state, en: enEdited });
+  assert.match(kept.f.html, /MANUAL FIX/);
+  assert.equal(kept.prepared.kept, 1);
+  const same = src.slice(); same[first] = same[first].replace('</p>', ' Cambio.</p>');
+  const overwritten = run({ fields: fieldsOf(p), html: same.join('\n'), state, en: enEdited });
+  assert.doesNotMatch(overwritten.f.html, /MANUAL FIX/);
+});
+
+test('finish rejects a translation that drops a link', () => {
+  const html = '<p>Ver <a href="https://x.co/">esto</a></p>';
+  const prepared = c.prepare({ fields: {}, html, state: null, en: null });
+  const f = c.finish({ prepared, translations: { fields: {}, blocks: { [prepared.jobs.blocks[0].id]: '<p>See this</p>' } }, slugs: [] });
+  assert.equal(f.ok, false);
+  assert.match(f.problems[0], /shape mismatch/);
+});
+
+test('finish reports a missing translation instead of writing blanks', () => {
+  const prepared = c.prepare({ fields: { title: 'Hola' }, html: '<p>Hola</p>', state: null, en: null });
+  const f = c.finish({ prepared, translations: { fields: {}, blocks: {} }, slugs: [] });
+  assert.equal(f.ok, false);
+});
+
+test('output hash changes when a linked page becomes translated', () => {
+  const html = '<p><a href="https://criptonautas.co/faq/">q</a></p>';
+  const a = run({ fields: {}, html, state: null, en: null }, []);
+  const b = run({ fields: {}, html, state: null, en: null }, ['faq']);
+  assert.notEqual(a.f.state.out, b.f.state.out);
+});
+
+test('a field edited by hand in English is kept while Spanish is unchanged', () => {
+  const p = posts[0];
+  const { state, en } = firstRun(p);
+  const r = c.prepare({ fields: fieldsOf(p), html: p.html, state, en: { fields: { ...en.fields, title: 'My own title' }, html: en.html } });
+  assert.equal(r.fields.title.t, 'My own title');
+});

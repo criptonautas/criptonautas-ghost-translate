@@ -139,3 +139,84 @@ function searchDoc(en, src, base = EN) {
 }
 
 Object.assign(module.exports, { isGeneratedCover, coverPlan, searchDoc }); // export
+
+const norm = (v) => (v == null ? '' : String(v));
+
+// Decides, per field and per block, what to reuse, what to keep from a hand edit, and what to translate.
+function prepare({ fields, html, state, en }) {
+  const old = state || { fields: {}, body: [], enh: null, aligned: false };
+  const enUnits = en ? units(en.html) : null;
+  // Block-level protection only works while English still lines up block for block with our last write.
+  const guard = Boolean(old.aligned && enUnits && old.enh && enUnits.length === old.enh.length);
+  const jobs = { fields: {}, blocks: {} };
+  let changed = false, kept = 0;
+
+  const outFields = {};
+  for (const [k, raw] of Object.entries(fields)) {
+    const text = norm(raw), h = sha(text), prev = old.fields[k];
+    if (!prev || prev.h !== h) changed = true;
+    if (!text) { outFields[k] = { h, t: '' }; continue; }
+    if (prev && prev.h === h) {
+      const live = en ? norm(en.fields && en.fields[k]) : null;
+      const edited = live !== null && live !== prev.t;
+      if (edited) kept++;
+      outFields[k] = { h, t: edited ? live : prev.t, kept: edited };
+    } else {
+      jobs.fields[h] = text;
+      outFields[k] = { h, t: null };
+    }
+  }
+
+  const queues = {};
+  old.body.forEach((u, j) => { (queues[u.h] = queues[u.h] || []).push(j); });
+  const body = units(html).map((src) => {
+    const h = sha(src);
+    if (!needsTranslation(src)) return { h, src, t: src, pass: true };
+    const j = (queues[h] || []).shift();
+    if (j === undefined) { jobs.blocks[h] = src; return { h, src, t: null }; }
+    const edited = guard && sha(enUnits[j]) !== old.enh[j];
+    if (edited) kept++;
+    return { h, src, t: edited ? enUnits[j] : old.body[j].t, kept: edited };
+  });
+  if (body.length !== old.body.length || body.some((u, i) => u.h !== old.body[i].h)) changed = true;
+
+  const list = (o) => Object.entries(o).map(([id, text]) => ({ id, text }));
+  const pending = Object.keys(jobs.fields).length + Object.keys(jobs.blocks).length;
+  return {
+    fields: outFields, body, kept,
+    jobs: { fields: list(jobs.fields), blocks: list(jobs.blocks) },
+    noop: Boolean(en) && !changed && pending === 0,
+  };
+}
+
+// Fills the gaps, rejects anything that changed tags or links, and builds the English html.
+function finish({ prepared, translations, slugs }) {
+  const problems = [];
+  const pick = (u, bucket, label) => {
+    if (u.t !== null) return u.t;
+    const t = translations[bucket][u.h];
+    if (typeof t !== 'string') { problems.push('missing translation: ' + label); return ''; }
+    return t;
+  };
+  const fields = {}, stateFields = {};
+  for (const [k, u] of Object.entries(prepared.fields)) {
+    const t = pick(u, 'fields', k);
+    fields[k] = t;
+    stateFields[k] = { h: u.h, t };
+  }
+  const body = prepared.body.map((u, i) => {
+    const t = pick(u, 'blocks', 'block ' + i);
+    if (u.t === null && !sameShape(u.src, t)) problems.push('shape mismatch in block ' + i);
+    return { h: u.h, t };
+  });
+  const html = body.map((b) => rewriteLinks(b.t, slugs)).join('\n');
+  return { ok: problems.length === 0, problems, fields, html, state: { fields: stateFields, body, out: sha(html), enh: null, aligned: false } };
+}
+
+// Records what English looks like after Ghost re-rendered our write, so later hand edits can be told apart.
+function snapshot(state, enHtml) {
+  const en = units(enHtml);
+  return { ...state, enh: en.map(sha), aligned: en.length === state.body.length };
+}
+
+Object.assign(module.exports, { prepare, finish, snapshot }); // export

@@ -210,3 +210,12 @@ test('a field edited by hand in English is kept while Spanish is unchanged', () 
   const r = c.prepare({ fields: fieldsOf(p), html: p.html, state, en: { fields: { ...en.fields, title: 'My own title' }, html: en.html } });
   assert.equal(r.fields.title.t, 'My own title');
 });
+
+test('emitted Code node bodies are valid JavaScript and carry no exports', () => {
+  const { execFileSync } = require('node:child_process');
+  for (const name of ['prepare', 'finish', 'payload', 'snapshot', 'search-doc', 'source-head']) {
+    const code = execFileSync('node', [__dirname + '/emit-node.js', name], { encoding: 'utf8' });
+    assert.doesNotMatch(code, /module\.exports/);
+    assert.doesNotThrow(() => new Function('$', '$input', 'require', code), name);
+  }
+});

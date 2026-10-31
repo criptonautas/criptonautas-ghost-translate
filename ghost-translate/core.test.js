@@ -323,3 +323,34 @@ test('emitted Code node bodies are valid JavaScript and carry no exports', () =>
     assert.doesNotThrow(() => new Function('$', '$input', 'require', code), name);
   }
 });
+
+test('an unchanged post still writes when its English twin is not published', () => {
+  const { execFileSync } = require('node:child_process');
+  const code = execFileSync('node', [__dirname + '/emit-node.js', 'finish'], { encoding: 'utf8' });
+  const html = '<p>Hola mundo</p>';
+  const fields = { title: 'Hola' };
+  const first = c.prepare({ fields, html, state: null, en: null });
+  const f = c.finish({ prepared: first, translations: { fields: { [first.fields.title.h]: 'Hello' }, blocks: { [first.body[0].h]: '<p>Hello world</p>' } }, slugs: [] });
+  const state = c.snapshot(f.state, f.html);
+  const run = (status) => {
+    const en = { status, html: f.html, feature_image: null, title: 'Hello' };
+    const prepared = c.prepare({ fields, html, state, en: { fields: { title: 'Hello' }, html: f.html } });
+    const nodes = {
+      'Prepare Translation': { kind: 'none', chars: 0, prepared, old_out: state.out },
+      'Known Slugs': { slug: 'a' },
+      Context: { slug: 'a', type: 'posts' },
+      'Fetch Source': { posts: [{ feature_image: null }] },
+      'Get State': { state: JSON.stringify(state) },
+      'Get English': { posts: [en] },
+    };
+    const $ = (n) => {
+      if (!nodes[n]) throw new Error('not executed');
+      return { first: () => ({ json: nodes[n] }), all: () => [{ json: nodes[n] }] };
+    };
+    return new Function('$', '$input', 'require', code)($, {}, require)[0].json;
+  };
+  assert.equal(run('published').noop, true);
+  assert.equal(run('published').write, false);
+  assert.equal(run('draft').write, true);
+  assert.equal(run('draft').jobs, 0);
+});

@@ -22,5 +22,6 @@ const old = row && row.state ? JSON.parse(row.state) : null;
 const enRes = $('Get English').first().json;
 const en = enRes && enRes[ctx.type] && enRes[ctx.type][0] ? enRes[ctx.type][0] : null;
 const plan = coverPlan({ esImage: src.feature_image, enImage: en && en.feature_image, cover: old && old.cover });
-const write = !prepared.noop || prep[0].old_out !== f.state.out || plan.changed;
+// A republish changes nothing but status, so a draft twin must still be written back.
+const write = !prepared.noop || prep[0].old_out !== f.state.out || plan.changed || (Boolean(en) && en.status !== 'published');
 return [{ json: { ...f, write, cover_plan: plan, noop: prepared.noop, kept: prepared.kept, jobs: sent.length, chars_sent: sent.reduce((a, j) => a + j.chars, 0) } }];

@@ -58,13 +58,13 @@ const units = (html) => splitBlocks(html || '').filter((b) => !isJunk(b));
 
 Object.assign(module.exports, { sha, splitBlocks, textOf, needsTranslation, isJunk, units }); // export
 
-// DeepL may split one inline span into several, so these tags compare by presence, not count.
-const INLINE = new Set(['b', 'strong', 'i', 'em', 'u', 's', 'span', 'mark', 'sub', 'sup', 'small']);
+// DeepL may split one inline span or link into several, so these tags compare by presence, not count.
+const INLINE = new Set(['a', 'b', 'strong', 'i', 'em', 'u', 's', 'span', 'mark', 'sub', 'sup', 'small']);
 // Two translations of one block must carry the same tags and the same links, in any order.
 function shape(b) {
   const tags = (b.match(/<([a-zA-Z][\w-]*)/g) || []).map((t) => t.slice(1).toLowerCase()).sort()
     .filter((t, i, all) => !INLINE.has(t) || all.indexOf(t) === i);
-  const urls = [...b.matchAll(/\s(?:href|src)="([^"]*)"/g)].map((m) => m[1]).sort();
+  const urls = [...new Set([...b.matchAll(/\s(?:href|src)="([^"]*)"/g)].map((m) => m[1]))].sort();
   return JSON.stringify({ tags, urls });
 }
 const sameShape = (a, b) => shape(a) === shape(b);
@@ -158,14 +158,16 @@ function prepare({ fields, html, state, en }) {
   for (const [k, raw] of Object.entries(fields)) {
     const text = norm(raw), h = sha(text), prev = old.fields[k];
     if (!prev || prev.h !== h) changed = true;
-    if (!text) { outFields[k] = { h, t: '' }; continue; }
+    // DeepL gets fields as plain text; the hash stays on the raw value so Spanish edits are still seen.
+    const plain = text.includes('<') ? textOf(text) : text;
+    if (!plain) { outFields[k] = { h, t: '' }; continue; }
     if (prev && prev.h === h) {
       const live = en ? norm(en.fields && en.fields[k]) : null;
       const edited = live !== null && live !== prev.t;
       if (edited) kept++;
       outFields[k] = { h, t: edited ? live : prev.t, kept: edited };
     } else {
-      jobs.fields[h] = text;
+      jobs.fields[h] = plain;
       outFields[k] = { h, t: null };
     }
   }

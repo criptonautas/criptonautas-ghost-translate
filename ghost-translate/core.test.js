@@ -50,6 +50,26 @@ test('sameShape tolerates a split inline span but not a lost one', () => {
   assert.equal(c.sameShape(a, '<p>The <em>seed phrase</em> goes here</p>'), false);
 });
 
+test('sameShape tolerates a split link but not a lost or changed url', () => {
+  const a = '<p>Ver <a href="https://x.co/">este enlace</a><br>hoy</p>';
+  assert.equal(c.sameShape(a, '<p>See <a href="https://x.co/">this</a> <a href="https://x.co/">link</a><br>today</p>'), true);
+  assert.equal(c.sameShape(a, '<p>See <a href="https://y.co/">this</a><br>today</p>'), false);
+  assert.equal(c.sameShape(a, '<p>See this<br>today</p>'), false);
+  assert.equal(c.sameShape('<p><a href="https://x.co/">a</a> <a href="https://y.co/">b</a></p>', '<p><a href="https://x.co/">a b</a></p>'), false);
+  assert.equal(c.sameShape('<p>p<s>l</s>andemia</p>', '<p>plandemic</p>'), false);
+});
+
+test('markup in a field goes to DeepL as plain text and is hashed raw', () => {
+  const raw = '<i><em class="italic">as above, so below</em></i>';
+  const p = c.prepare({ fields: { caption: raw }, html: '', state: null, en: null });
+  assert.deepEqual(p.jobs.fields.map((j) => j.text), ['as above, so below']);
+  assert.equal(p.fields.caption.h, c.sha(raw));
+  const state = { fields: { caption: { h: c.sha(raw), t: 'x' } }, body: [] };
+  const edited = c.prepare({ fields: { caption: '<i>as above, so below</i>' }, html: '', state, en: null });
+  assert.equal(edited.jobs.fields.length, 1);
+  assert.equal(c.prepare({ fields: { caption: '<br>' }, html: '', state: null, en: null }).jobs.fields.length, 0);
+});
+
 test('rewriteLinks only touches pages that exist in English', () => {
   const html = '<a href="https://criptonautas.co/faq/">f</a><a href="https://criptonautas.co/nope/">n</a>'
     + '<a href="https://criptonautas.co/tag/x/">t</a><a href="https://criptonautas.co/">h</a>'

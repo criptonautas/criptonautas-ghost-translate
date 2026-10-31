@@ -7,8 +7,6 @@ const en = !ctx.dry_run && enRes && enRes[ctx.type] && enRes[ctx.type][0] ? enRe
 const fields = {};
 for (const k of FIELDS) {
   fields[k] = src[k];
-  // Fields go to DeepL as plain text, so markup in them would be mangled. Fail loudly instead.
-  if (String(src[k] || '').includes('<')) throw new Error('Field ' + k + ' contains markup: ' + src.slug);
 }
 const state = row && row.state ? JSON.parse(row.state) : null;
 const prepared = prepare({

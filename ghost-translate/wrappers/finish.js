@@ -11,7 +11,9 @@ sent.forEach((g, n) => {
 });
 // Dry-run rows are not real English pages, so they must not turn links into en.criptonautas.co.
 const slugs = [...new Set($('Known Slugs').all().map((i) => String(i.json.slug || '')).filter((s) => s && !s.startsWith('dry:')))];
-const f = finish({ prepared, translations, slugs });
+// The owner accepts losing the strikethrough in this post's p<s>l</s>andemia wordplay.
+const ALLOW_LOST = { 'expandir-dinero': ['s'] };
+const f = finish({ prepared, translations, slugs, allowLost: ALLOW_LOST[$('Context').first().json.slug] || [] });
 if (!f.ok) throw new Error('Translation rejected: ' + f.problems.join('; '));
 const ctx = $('Context').first().json;
 const src = $('Fetch Source').first().json[ctx.type][0];

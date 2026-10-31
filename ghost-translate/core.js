@@ -67,7 +67,12 @@ function shape(b) {
   const urls = [...new Set([...b.matchAll(/\s(?:href|src)="([^"]*)"/g)].map((m) => m[1]))].sort();
   return JSON.stringify({ tags, urls });
 }
-const sameShape = (a, b) => shape(a) === shape(b);
+// allowLost names inline tags a translation may drop; anything else must still match.
+function sameShape(a, b, allowLost = []) {
+  const from = JSON.parse(shape(a)), to = JSON.parse(shape(b));
+  from.tags = from.tags.filter((t) => !allowLost.includes(t) || to.tags.includes(t));
+  return JSON.stringify(from) === JSON.stringify(to);
+}
 
 const ES = 'https://criptonautas.co';
 const EN = 'https://en.criptonautas.co';
@@ -195,7 +200,7 @@ function prepare({ fields, html, state, en }) {
 }
 
 // Fills the gaps, rejects anything that changed tags or links, and builds the English html.
-function finish({ prepared, translations, slugs }) {
+function finish({ prepared, translations, slugs, allowLost = [] }) {
   const problems = [];
   const pick = (u, bucket, label) => {
     if (u.t !== null) return u.t;
@@ -211,7 +216,7 @@ function finish({ prepared, translations, slugs }) {
   }
   const body = prepared.body.map((u, i) => {
     const t = pick(u, 'blocks', 'block ' + i);
-    if (u.t === null && !sameShape(u.src, t)) problems.push('shape mismatch in block ' + i);
+    if (u.t === null && !sameShape(u.src, t, allowLost)) problems.push('shape mismatch in block ' + i);
     return { h: u.h, t };
   });
   const html = body.map((b) => rewriteLinks(b.t, slugs)).join('\n');

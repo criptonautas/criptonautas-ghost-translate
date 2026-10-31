@@ -70,6 +70,35 @@ test('markup in a field goes to DeepL as plain text and is hashed raw', () => {
   assert.equal(c.prepare({ fields: { caption: '<br>' }, html: '', state: null, en: null }).jobs.fields.length, 0);
 });
 
+test('allowLost tolerates only the named tag, and only in the wrapper for its slug', () => {
+  const src = '<p>p<s>l</s>andemia <em>x</em> <a href="https://x.co/">y</a></p>';
+  const lostS = '<p>plandemic <em>x</em> <a href="https://x.co/">y</a></p>';
+  assert.equal(c.sameShape(src, lostS), false);
+  assert.equal(c.sameShape(src, lostS, ['s']), true);
+  assert.equal(c.sameShape(src, '<p>plandemic x <a href="https://x.co/">y</a></p>', ['s']), false);
+  assert.equal(c.sameShape(src, '<p>plandemic <em>x</em> y</p>', ['s']), false);
+  assert.equal(c.sameShape('<p>a</p>', '<p><s>a</s></p>', ['s']), false);
+  const { execFileSync } = require('node:child_process');
+  const code = execFileSync('node', [__dirname + '/emit-node.js', 'finish'], { encoding: 'utf8' });
+  const run = (slug) => {
+    const prepared = c.prepare({ fields: {}, html: '<p>p<s>l</s>andemia</p>', state: null, en: null });
+    const job = prepared.jobs.blocks[0];
+    const data = {
+      'Prepare Translation': [{ json: { kind: 'html', ids: [job.id], chars: 9, prepared, old_out: null } }],
+      'DeepL Translate': [{ json: { translations: [{ text: '<p>plandemic</p>' }] } }],
+      'Known Slugs': [{ json: {} }],
+      Context: [{ json: { slug, type: 'posts' } }],
+      'Fetch Source': [{ json: { posts: [{ feature_image: null }] } }],
+      'Get State': [{ json: {} }],
+      'Get English': [{ json: {} }],
+    };
+    const $ = (n) => ({ all: () => data[n], first: () => data[n][0] });
+    return new Function('$', 'require', code)($, require);
+  };
+  assert.equal(run('expandir-dinero')[0].json.ok, true);
+  assert.throws(() => run('other'), /shape mismatch/);
+});
+
 test('rewriteLinks only touches pages that exist in English', () => {
   const html = '<a href="https://criptonautas.co/faq/">f</a><a href="https://criptonautas.co/nope/">n</a>'
     + '<a href="https://criptonautas.co/tag/x/">t</a><a href="https://criptonautas.co/">h</a>'

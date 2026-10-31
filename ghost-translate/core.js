@@ -58,9 +58,12 @@ const units = (html) => splitBlocks(html || '').filter((b) => !isJunk(b));
 
 Object.assign(module.exports, { sha, splitBlocks, textOf, needsTranslation, isJunk, units }); // export
 
+// DeepL may split one inline span into several, so these tags compare by presence, not count.
+const INLINE = new Set(['b', 'strong', 'i', 'em', 'u', 's', 'span', 'mark', 'sub', 'sup', 'small']);
 // Two translations of one block must carry the same tags and the same links, in any order.
 function shape(b) {
-  const tags = (b.match(/<([a-zA-Z][\w-]*)/g) || []).map((t) => t.slice(1).toLowerCase()).sort();
+  const tags = (b.match(/<([a-zA-Z][\w-]*)/g) || []).map((t) => t.slice(1).toLowerCase()).sort()
+    .filter((t, i, all) => !INLINE.has(t) || all.indexOf(t) === i);
   const urls = [...b.matchAll(/\s(?:href|src)="([^"]*)"/g)].map((m) => m[1]).sort();
   return JSON.stringify({ tags, urls });
 }

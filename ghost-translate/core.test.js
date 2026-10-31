@@ -43,6 +43,13 @@ test('sameShape ignores the order of inline tags but not links', () => {
   assert.equal(c.sameShape(a, '<p><b>A</b> and <i>B</i> <a href="https://x.co/other">c</a></p>'), false);
 });
 
+test('sameShape tolerates a split inline span but not a lost one', () => {
+  const a = '<p>La <em>frase semilla</em> va<br>aqui</p>';
+  assert.equal(c.sameShape(a, '<p>The <em>seed</em> <em>phrase</em> goes<br>here</p>'), true);
+  assert.equal(c.sameShape(a, '<p>The seed phrase goes<br>here</p>'), false);
+  assert.equal(c.sameShape(a, '<p>The <em>seed phrase</em> goes here</p>'), false);
+});
+
 test('rewriteLinks only touches pages that exist in English', () => {
   const html = '<a href="https://criptonautas.co/faq/">f</a><a href="https://criptonautas.co/nope/">n</a>'
     + '<a href="https://criptonautas.co/tag/x/">t</a><a href="https://criptonautas.co/">h</a>'

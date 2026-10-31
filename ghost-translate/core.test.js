@@ -317,7 +317,7 @@ test('a field edited by hand in English is kept while Spanish is unchanged', () 
 
 test('emitted Code node bodies are valid JavaScript and carry no exports', () => {
   const { execFileSync } = require('node:child_process');
-  for (const name of ['prepare', 'finish', 'payload', 'snapshot', 'search-doc', 'source-head']) {
+  for (const name of ['prepare', 'finish', 'payload', 'snapshot', 'search-doc', 'source-head', 'search-docs-es', 'search-stale-es']) {
     const code = execFileSync('node', [__dirname + '/emit-node.js', name], { encoding: 'utf8' });
     assert.doesNotMatch(code, /module\.exports/);
     assert.doesNotThrow(() => new Function('$', '$input', 'require', code), name);
@@ -353,4 +353,29 @@ test('an unchanged post still writes when its English twin is not published', ()
   assert.equal(run('published').write, false);
   assert.equal(run('draft').write, true);
   assert.equal(run('draft').jobs, 0);
+});
+
+const emitted = (name) => require('node:child_process').execFileSync('node', [__dirname + '/emit-node.js', name], { encoding: 'utf8' });
+
+test('Spanish docs keep their true visibility and paid text stays out of the index', () => {
+  const run = (json) => new Function('$', '$input', 'require', emitted('search-docs-es'))(null, { all: () => [{ json }] }, require).map((i) => i.json.doc);
+  const base = { title: 'T', slug: 's', status: 'published', html: '<p>Secreto</p>', authors: [{ name: 'A' }], tags: [], published_at: '2026-01-01', updated_at: '2026-01-02' };
+  const [open, paid] = run({ posts: [{ ...base, id: 'a', visibility: 'public' }, { ...base, id: 'b', visibility: 'paid' }] });
+  assert.equal(open.url, 'https://criptonautas.co/s/');
+  assert.equal(open.plaintext, 'Secreto');
+  assert.deepEqual(open.authors, ['A']);
+  assert.equal(paid.visibility, 'paid');
+  assert.equal(paid.plaintext + paid.html + paid.excerpt, '');
+  assert.equal(run({ pages: [{ ...base, id: 'c', visibility: 'public', status: 'draft' }] }).length, 0);
+  assert.throws(() => run({ posts: [], meta: { pagination: { next: 2 } } }), /paginated/);
+});
+
+test('stale docs are listed by id, and a short or empty list aborts', () => {
+  const run = (count, data) => {
+    const docs = Array.from({ length: count }, (_, n) => ({ json: { doc: { id: 'k' + n } } }));
+    return new Function('$', '$input', 'require', emitted('search-stale-es'))(() => ({ all: () => docs }), { first: () => ({ json: { data } }) }, require);
+  };
+  assert.deepEqual(run(20, '{"id":"k0"}\n{"id":"old"}\n').map((i) => i.json.id), ['old']);
+  assert.throws(() => run(19, '{"id":"old"}'), /refusing/);
+  assert.throws(() => run(20, ''), /no ids/);
 });

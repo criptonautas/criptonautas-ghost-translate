@@ -217,6 +217,7 @@ function run(input, slugs = []) {
   const tr = { fields: {}, blocks: {} };
   for (const j of prepared.jobs.fields) tr.fields[j.id] = 'EN ' + j.text;
   for (const j of prepared.jobs.blocks) tr.blocks[j.id] = fake(j.text);
+  tr.alts = Object.fromEntries(prepared.jobs.alts.map((j) => [j.id, 'EN ' + j.text]));
   return { prepared, f: c.finish({ prepared, translations: tr, slugs }) };
 }
 const firstRun = (p) => {
@@ -439,4 +440,61 @@ test('the English write never sends a slug on PUT and picks one on POST', () => 
   const post = run(null);
   assert.equal(post.method, 'POST');
   assert.equal(post.body.posts[0].slug, 'the-course-2');
+});
+
+const altFixture = () => {
+  const html = '<p>Hola</p>\n<figure><img src="a.png" alt="El &quot;gato&quot; &amp; yo"></figure>\n<p>Mira <img src="b.png" alt=""> <img src="c.png" alt="Perro"></p>';
+  const fields = { title: 'T' };
+  const p = c.prepare({ fields, html, state: null, en: null });
+  const tr = { fields: { [p.fields.title.h]: 'T' }, blocks: {}, alts: {} };
+  for (const j of p.jobs.blocks) tr.blocks[j.id] = j.text.replace('Hola', 'Hi').replace('Mira', 'Look');
+  for (const j of p.jobs.alts) tr.alts[j.id] = j.text === 'Perro' ? 'Dog' : 'The "cat" & me';
+  const f = c.finish({ prepared: p, translations: tr, slugs: [] });
+  return { html, fields, p, f, state: c.snapshot(f.state, f.html), en: { fields: { title: 'T' }, html: f.html } };
+};
+
+test('alts go to DeepL decoded, once, and come back escaped in place', () => {
+  const { p, f } = altFixture();
+  assert.deepEqual(p.jobs.alts.map((j) => j.text).sort(), ['El "gato" & yo', 'Perro']);
+  assert.equal(f.ok, true);
+  assert.match(f.html, /<img src="a\.png" alt="The &quot;cat&quot; &amp; me">/);
+  assert.match(f.html, /<img src="b\.png" alt=""> <img src="c\.png" alt="Dog">/);
+});
+
+test('a second pass sends nothing and builds the same html', () => {
+  const { html, fields, f, state, en } = altFixture();
+  const again = c.prepare({ fields, html, state, en });
+  assert.deepEqual(again.jobs, { fields: [], blocks: [], alts: [] });
+  assert.equal(again.noop, true);
+  assert.equal(c.finish({ prepared: again, translations: { fields: {}, blocks: {}, alts: {} }, slugs: [] }).state.out, f.state.out);
+});
+
+test('old state sends every alt once and no block bodies', () => {
+  const { html, fields, state, en } = altFixture();
+  const old = { ...state, alts: undefined };
+  const r = c.prepare({ fields, html, state: old, en });
+  assert.equal(r.jobs.blocks.length, 0);
+  assert.equal(r.jobs.alts.length, 2);
+  assert.equal(r.noop, false);
+});
+
+test('a hand edited block keeps its own alts, also an image with no text', () => {
+  const { html, fields, state, en } = altFixture();
+  const edited = en.html.replace('The &quot;cat&quot; &amp; me', 'Mine');
+  const r = c.prepare({ fields, html, state, en: { ...en, html: edited } });
+  const f = c.finish({ prepared: r, translations: { fields: {}, blocks: {}, alts: {} }, slugs: [] });
+  assert.equal(r.kept, 1);
+  assert.match(f.html, /alt="Mine"/);
+  assert.deepEqual(r.jobs.alts, []);
+});
+
+test('alts inside html cards stay verbatim and a count mismatch leaves the block', () => {
+  const html = '<!--kg-card-begin: html--><div><img src="a" alt="Uno">Hola</div><!--kg-card-end: html-->\n<p>Dos <img src="b" alt="Tres"></p>';
+  const p = c.prepare({ fields: {}, html, state: null, en: null });
+  assert.deepEqual(p.jobs.alts.map((j) => j.text), ['Tres']);
+  const tr = { fields: {}, blocks: {}, alts: { [p.jobs.alts[0].id]: 'Three' } };
+  for (const j of p.jobs.blocks) tr.blocks[j.id] = j.text;
+  assert.match(c.finish({ prepared: p, translations: tr, slugs: [] }).html, /alt="Uno">Hola[\s\S]*alt="Three"/);
+  assert.equal(c.applyAlts('<img alt="a"><img alt="b">', '<img alt="a">', {}), '<img alt="a">');
+  assert.equal(c.sameShape('<img src="x" alt="a">', '<img src="x" alt="b">'), true);
 });

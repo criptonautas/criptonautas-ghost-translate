@@ -209,13 +209,29 @@ Object.assign(module.exports, { isGeneratedCover, coverPlan, searchDoc }); // ex
 
 const norm = (v) => (v == null ? '' : String(v));
 
+// Only image alts: the text of a page can hold the same characters.
+const ALT = /(<img\b[^>]*?\salt=")([^"]*)(")/g;
+const altsOf = (b) => [...b.matchAll(ALT)].map((m) => m[2]);
+const decodeAlt = (v) => v.replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').trim();
+const escapeAlt = (v) => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Positional, so a block whose images no longer line up keeps what it has.
+function applyAlts(src, t, map) {
+  const from = altsOf(src);
+  if (from.length !== altsOf(t).length) return t;
+  let i = 0;
+  return t.replace(ALT, (m, open, value, close) => {
+    const text = decodeAlt(from[i++]);
+    return text ? open + escapeAlt(map[sha(text)]) + close : open + close;
+  });
+}
+
 // Decides, per field and per block, what to reuse, what to keep from a hand edit, and what to translate.
 function prepare({ fields, html, state, en }) {
   const old = state || { fields: {}, body: [], enh: null, aligned: false };
   const enUnits = en ? units(en.html) : null;
   // Block-level protection only works while English still lines up block for block with our last write.
   const guard = Boolean(old.aligned && enUnits && old.enh && enUnits.length === old.enh.length);
-  const jobs = { fields: {}, blocks: {} };
+  const jobs = { fields: {}, blocks: {}, alts: {} };
   let changed = false, kept = 0;
 
   const outFields = {};
@@ -238,22 +254,36 @@ function prepare({ fields, html, state, en }) {
 
   const queues = {};
   old.body.forEach((u, j) => { (queues[u.h] = queues[u.h] || []).push(j); });
+  const altMap = {};
+  const wantAlts = (src) => {
+    for (const raw of altsOf(src)) {
+      const text = decodeAlt(raw), id = sha(text);
+      if (!text) continue;
+      if (old.alts && old.alts[id] !== undefined) altMap[id] = old.alts[id];
+      else jobs.alts[id] = text;
+    }
+  };
+  let inCard = false;
   const body = protectRaw(units(html)).map((src) => {
-    const h = sha(src);
-    if (!needsTranslation(src)) return { h, src, t: src, pass: true };
-    const j = (queues[h] || []).shift();
-    if (j === undefined) { jobs.blocks[h] = src; return { h, src, t: null }; }
-    const edited = guard && sha(enUnits[j]) !== old.enh[j];
-    if (edited) kept++;
-    return { h, src, t: edited ? enUnits[j] : old.body[j].t, kept: edited };
+    if (/^<!--kg-card-begin:/.test(src)) inCard = true;
+    if (/^<!--kg-card-end:/.test(src)) inCard = false;
+    const h = sha(src), alts = !inCard && altsOf(src).length > 0;
+    const j = alts || needsTranslation(src) ? (queues[h] || []).shift() : undefined;
+    const edited = guard && j !== undefined && sha(enUnits[j]) !== old.enh[j];
+    if (edited) { kept++; return { h, src, t: enUnits[j], kept: true }; }
+    if (alts) wantAlts(src);
+    // An image with no caption has no text for DeepL, but its alt is still Spanish.
+    if (!needsTranslation(src)) return { h, src, t: src, pass: true, alts };
+    if (j === undefined) { jobs.blocks[h] = src; return { h, src, t: null, alts }; }
+    return { h, src, t: old.body[j].t, kept: false, alts };
   });
   if (body.length !== old.body.length || body.some((u, i) => u.h !== old.body[i].h)) changed = true;
 
   const list = (o) => Object.entries(o).map(([id, text]) => ({ id, text }));
-  const pending = Object.keys(jobs.fields).length + Object.keys(jobs.blocks).length;
+  const pending = Object.keys(jobs.fields).length + Object.keys(jobs.blocks).length + Object.keys(jobs.alts).length;
   return {
-    fields: outFields, body, kept,
-    jobs: { fields: list(jobs.fields), blocks: list(jobs.blocks) },
+    fields: outFields, body, kept, alts: altMap,
+    jobs: { fields: list(jobs.fields), blocks: list(jobs.blocks), alts: list(jobs.alts) },
     noop: Boolean(en) && !changed && pending === 0,
   };
 }
@@ -282,13 +312,15 @@ function finish({ prepared, translations, slugs, allowLost = [] }) {
     fields[k] = t;
     stateFields[k] = { h: u.h, t };
   }
+  const alts = { ...prepared.alts, ...translations.alts };
+  for (const { id } of prepared.jobs.alts) if (typeof alts[id] !== 'string') problems.push('missing translation: alt ' + id);
   const body = prepared.body.map((u, i) => {
     const t = restoreMetadata(u.src, pick(u, 'blocks', 'block ' + i));
     if (u.t === null && !sameShape(u.src, t, allowLost)) problems.push('shape mismatch in block ' + i);
-    return { h: u.h, t };
+    return { h: u.h, t: u.alts && !problems.length ? applyAlts(u.src, t, alts) : t };
   });
   const html = body.map((b) => rewriteLinks(b.t, slugs)).join('\n');
-  return { ok: problems.length === 0, problems, fields, html, state: { fields: stateFields, body, out: sha(html), enh: null, aligned: false } };
+  return { ok: problems.length === 0, problems, fields, html, state: { fields: stateFields, body, alts, out: sha(html), enh: null, aligned: false } };
 }
 
 // Records what English looks like after Ghost re-rendered our write, so later hand edits can be told apart.
@@ -297,4 +329,4 @@ function snapshot(state, enHtml) {
   return { ...state, enh: en.map(sha), aligned: en.length === state.body.length };
 }
 
-Object.assign(module.exports, { prepare, finish, snapshot, migrationPlan }); // export
+Object.assign(module.exports, { prepare, finish, snapshot, migrationPlan, applyAlts }); // export

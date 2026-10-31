@@ -22,6 +22,7 @@ const prepared = prepare({
 const items = [
   ...chunk(prepared.jobs.fields).map((g) => ({ kind: 'text', ids: g.map((j) => j.id), texts: g.map((j) => j.text) })),
   ...chunk(prepared.jobs.blocks).map((g) => ({ kind: 'html', ids: g.map((j) => j.id), texts: g.map((j) => j.text) })),
+  ...chunk(prepared.jobs.alts).map((g) => ({ kind: 'alt', ids: g.map((j) => j.id), texts: g.map((j) => j.text) })),
 // DeepL bills visible text only, so this is the number to compare with its usage counter.
 ].map((x) => ({ ...x, chars: x.texts.reduce((a, t) => a + (x.kind === 'html' ? textOf(t).length : t.length), 0) }));
 if (!items.length) items.push({ kind: 'none', chars: 0 });

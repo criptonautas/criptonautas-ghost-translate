@@ -3,11 +3,12 @@ const prepared = prep[0].prepared;
 const sent = prep.filter((j) => j.kind !== 'none');
 let results = [];
 try { results = $('DeepL Translate').all(); } catch (e) { results = []; }
-const translations = { fields: {}, blocks: {} };
+const translations = { fields: {}, blocks: {}, alts: {} };
+const BUCKET = { text: 'fields', html: 'blocks', alt: 'alts' };
 sent.forEach((g, n) => {
   const out = results[n] && results[n].json.translations;
   if (!out || out.length !== g.ids.length) throw new Error('DeepL returned ' + (out ? out.length : 0) + ' of ' + g.ids.length + ' texts');
-  g.ids.forEach((id, k) => { translations[g.kind === 'html' ? 'blocks' : 'fields'][id] = out[k].text; });
+  g.ids.forEach((id, k) => { translations[BUCKET[g.kind]][id] = out[k].text; });
 });
 // Dry-run rows are not real English pages, so they must not turn links into en.criptonautas.co.
 const slugs = {};

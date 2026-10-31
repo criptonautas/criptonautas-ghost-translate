@@ -99,6 +99,54 @@ test('allowLost tolerates only the named tag, and only in the wrapper for its sl
   assert.throws(() => run('other'), /shape mismatch/);
 });
 
+test('a self-closed div keeps its closer and an empty mount point is not junk', () => {
+  const html = '<!--kg-card-begin: html--><p></p><div id="meet" /></div><!--kg-card-end: html-->';
+  assert.deepEqual(c.units(html), ['<!--kg-card-begin: html-->', '<div id="meet" /></div>', '<!--kg-card-end: html-->']);
+  assert.deepEqual(c.splitBlocks('<svg><path d="M0"/><path d="M1"/></svg><p>x</p>'), ['<svg><path d="M0"/><path d="M1"/></svg>', '<p>x</p>']);
+  assert.equal(c.isJunk('<div class="mount"></div>'), false);
+  assert.equal(c.isJunk('<h1 id=""></h1>'), true);
+  assert.equal(c.isJunk('<style>.a{}</style>'), false);
+  assert.equal(c.isJunk('<p><span style="white-space: pre-wrap;"></span></p>'), true);
+  assert.equal(c.isJunk('<p></p>'), true);
+});
+
+test('raw blocks outside a card are wrapped once, adjacent ones together', () => {
+  const stats = '<iframe src="https://s.co/x"></iframe>\n<script async src="https://s.co/j.js"></script>';
+  const a = c.prepare({ fields: {}, html: stats, state: null, en: null });
+  assert.deepEqual(a.body.map((u) => u.src), ['<!--kg-card-begin: html-->', '<iframe src="https://s.co/x"></iframe>', '<script async src="https://s.co/j.js"></script>', '<!--kg-card-end: html-->']);
+  assert.equal(a.jobs.blocks.length, 0);
+  const f = c.finish({ prepared: a, translations: { fields: {}, blocks: {} }, slugs: [] });
+  const state = c.snapshot(f.state, f.html);
+  assert.equal(state.aligned, true);
+  const inCard = '<!--kg-card-begin: html--><script>x()</script><!--kg-card-end: html-->';
+  assert.deepEqual(c.prepare({ fields: {}, html: inCard, state: null, en: null }).body.map((u) => u.src), c.units(inCard));
+  assert.deepEqual(c.prepare({ fields: {}, html: '<figure class="kg-card kg-embed-card"><iframe src="x"></iframe></figure>', state: null, en: null }).body.length, 1);
+  assert.equal(c.prepare({ fields: {}, html: stats, state, en: { fields: {}, html: f.html } }).noop, true);
+});
+
+test('bookmark metadata comes from the source, in every card, and self-repairs stored blocks', () => {
+  const card = (title, meta) => '<figure class="kg-card kg-bookmark-card"><a class="kg-bookmark-container" href="https://x.co/"><div class="kg-bookmark-content"><div class="kg-bookmark-title">' + title + '</div><div class="kg-bookmark-metadata">' + meta + '</div></div></a></figure>';
+  const good = '<img class="kg-bookmark-icon" src="https://x.co/i.png" alt=""><span class="kg-bookmark-author">Comunidad Criptonauta</span><span class="kg-bookmark-publisher">satoshinotdead</span>';
+  const bad = '<img class="kg-bookmark-icon" src="https://x.co/i.png" alt=""><span class="kg-bookmark-author">Criptonauts Community atoshinotdead</span>';
+  const src = '<div>' + card('Hola', good) + card('Chau', good) + '</div>';
+  const translated = '<div>' + card('Hello', bad) + card('Bye', bad) + '</div>';
+  const fresh = c.prepare({ fields: {}, html: src, state: null, en: null });
+  const one = c.finish({ prepared: fresh, translations: { fields: {}, blocks: { [fresh.jobs.blocks[0].id]: translated } }, slugs: [] });
+  assert.equal(one.html, '<div>' + card('Hello', good) + card('Bye', good) + '</div>');
+  // a row written before this fix repairs itself with no DeepL job, then settles
+  const oldState = c.snapshot({ fields: {}, body: [{ h: c.sha(src), t: translated }], out: c.sha(translated), enh: null, aligned: false }, translated);
+  const live = { fields: {}, html: translated };
+  const repair = c.prepare({ fields: {}, html: src, state: oldState, en: live });
+  assert.equal(repair.jobs.blocks.length, 0);
+  const fixed = c.finish({ prepared: repair, translations: { fields: {}, blocks: {} }, slugs: [] });
+  assert.equal(fixed.html, one.html);
+  assert.notEqual(fixed.state.out, oldState.out);
+  const settled = c.snapshot(fixed.state, fixed.html);
+  const again = c.prepare({ fields: {}, html: src, state: settled, en: { fields: {}, html: fixed.html } });
+  assert.equal(again.noop, true);
+  assert.equal(c.finish({ prepared: again, translations: { fields: {}, blocks: {} }, slugs: [] }).state.out, settled.out);
+});
+
 test('rewriteLinks only touches pages that exist in English', () => {
   const html = '<a href="https://criptonautas.co/faq/">f</a><a href="https://criptonautas.co/nope/">n</a>'
     + '<a href="https://criptonautas.co/tag/x/">t</a><a href="https://criptonautas.co/">h</a>'

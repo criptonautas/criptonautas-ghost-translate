@@ -31,6 +31,11 @@ function splitBlocks(html) {
       end = gt < 0 ? html.length : gt + 1;
       re.lastIndex = end;
     }
+    // Browsers ignore the slash on a div, so <div id="x" /></div> is one element and the closer belongs to it.
+    if (tag && tok.endsWith('/>') && lower.startsWith('</' + tag + '>', end)) {
+      end += tag.length + 3;
+      re.lastIndex = end;
+    }
     if (!tag || VOID.has(tag) || RAW.has(tag) || tok.endsWith('/>')) {
       if (depth === 0) { blocks.push(html.slice(m.index, end)); from = end; }
       continue;
@@ -52,11 +57,31 @@ const textOf = (b) => b
   .trim();
 // Code blocks and comments are never sent to DeepL.
 const needsTranslation = (b) => !isComment(b) && !/^<pre\b/i.test(b) && textOf(b) !== '';
+// An empty element with an id or class is a mount point for a script or style, not a spacer.
+const isMount = (b) => !isComment(b) && textOf(b) === '' && !MEDIA.test(b) && /^<[\w-]+[^>]*\s(?:id|class)="[^"]/i.test(b);
 // Blocks Ghost drops on import anyway (empty spacer paragraphs).
-const isJunk = (b) => !isComment(b) && textOf(b) === '' && !MEDIA.test(b) && !/<script\b/i.test(b);
+const isJunk = (b) => !isComment(b) && textOf(b) === '' && !MEDIA.test(b) && !/<(script|style)\b/i.test(b) && !isMount(b);
 const units = (html) => splitBlocks(html || '').filter((b) => !isJunk(b));
 
-Object.assign(module.exports, { sha, splitBlocks, textOf, needsTranslation, isJunk, units }); // export
+// Ghost's html import drops scripts and rewrites iframes unless they sit inside an html card.
+const isRawBlock = (b) => /^<(script|style|iframe)\b/i.test(b) || isMount(b);
+function protectRaw(blocks) {
+  const out = [];
+  let inCard = false, wrapping = false;
+  for (const b of blocks) {
+    if (/^<!--kg-card-begin:/.test(b)) inCard = true;
+    if (/^<!--kg-card-end:/.test(b)) inCard = false;
+    const raw = !inCard && isRawBlock(b);
+    if (raw && !wrapping) out.push('<!--kg-card-begin: html-->');
+    if (!raw && wrapping) out.push('<!--kg-card-end: html-->');
+    wrapping = raw;
+    out.push(b);
+  }
+  if (wrapping) out.push('<!--kg-card-end: html-->');
+  return out;
+}
+
+Object.assign(module.exports, { sha, splitBlocks, textOf, needsTranslation, isJunk, units, protectRaw }); // export
 
 // DeepL may split one inline span or link into several, so these tags compare by presence, not count.
 const INLINE = new Set(['a', 'b', 'strong', 'i', 'em', 'u', 's', 'span', 'mark', 'sub', 'sup', 'small']);
@@ -179,7 +204,7 @@ function prepare({ fields, html, state, en }) {
 
   const queues = {};
   old.body.forEach((u, j) => { (queues[u.h] = queues[u.h] || []).push(j); });
-  const body = units(html).map((src) => {
+  const body = protectRaw(units(html)).map((src) => {
     const h = sha(src);
     if (!needsTranslation(src)) return { h, src, t: src, pass: true };
     const j = (queues[h] || []).shift();
@@ -199,6 +224,15 @@ function prepare({ fields, html, state, en }) {
   };
 }
 
+// Author and publisher are names: DeepL merges their spans and rewrites them, so the source's stay verbatim.
+const METADATA = /<div class="kg-bookmark-metadata">[\s\S]*?<\/div>/g;
+function restoreMetadata(src, t) {
+  const original = src.match(METADATA) || [];
+  if (original.length !== (t.match(METADATA) || []).length) return t;
+  let i = 0;
+  return t.replace(METADATA, () => original[i++]);
+}
+
 // Fills the gaps, rejects anything that changed tags or links, and builds the English html.
 function finish({ prepared, translations, slugs, allowLost = [] }) {
   const problems = [];
@@ -215,7 +249,7 @@ function finish({ prepared, translations, slugs, allowLost = [] }) {
     stateFields[k] = { h: u.h, t };
   }
   const body = prepared.body.map((u, i) => {
-    const t = pick(u, 'blocks', 'block ' + i);
+    const t = restoreMetadata(u.src, pick(u, 'blocks', 'block ' + i));
     if (u.t === null && !sameShape(u.src, t, allowLost)) problems.push('shape mismatch in block ' + i);
     return { h: u.h, t };
   });

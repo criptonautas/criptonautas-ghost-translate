@@ -15,7 +15,8 @@ const full = { ...config, typesense_url: 'https://s.test', typesense_source_coll
 test('templates carry nothing private', () => {
   for (const n of [...NAMES]) {
     const t = JSON.stringify(load(n));
-    assert.doesNotMatch(t, /criptonautas|eeac4ee26c9c|28201961|1A8x4Ajzo|dB4sfMhT|dvYu8wxV|WPc3DZDf|NTR6mUfv|KOwdxezO|lzuhgFax|SrFAelNF|3cl4kcFN|6YeRd2MB|expandir|FUSIONADO|terminos|webhookId|errorWorkflow/i, n);
+    assert.doesNotMatch(t, /criptonautas|ghost-translate-[a-f0-9]{32}|expandir|FUSIONADO|terminos|webhookId|errorWorkflow/i, n);
+    assert.doesNotMatch(t, /"id":"[A-Za-z0-9]{16}"/, n);
     for (const node of load(n).nodes) for (const c of Object.values(node.credentials || {})) assert.deepEqual(Object.keys(c), ['name']);
   }
 });

@@ -1,0 +1,23 @@
+{
+  "source_url": "https://example.com",
+  "target_url": "https://en.example.com",
+  "source_lang": "ES",
+  "target_lang": "EN-US",
+  "source_hreflang": "es",
+  "target_hreflang": "en",
+  "webhook_path": "ghost-translate-REPLACE-WITH-OPENSSL-RAND-HEX-16",
+  "data_table_id": "REPLACE",
+  "translate_post_workflow_id": "",
+  "search_index_workflow_id": "",
+  "error_workflow_id": "",
+  "deepl_api_url": "https://api-free.deepl.com",
+  "deepl_glossary_id": "",
+  "typesense_url": "",
+  "typesense_source_collection": "",
+  "typesense_target_collection": "",
+  "cover_service_url": "",
+  "cover_default_category": "",
+  "skip_slugs": [],
+  "skip_title_regex": "",
+  "allow_lost": {}
+}

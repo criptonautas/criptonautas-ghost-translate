@@ -1,8 +1,13 @@
 const fs = require('fs');
-// Code nodes cannot import files, so core.js is pasted whole into each one.
-const core = fs.readFileSync(__dirname + '/core.js', 'utf8')
-  .split('\n')
-  .filter((l) => !l.endsWith('// export') && !l.startsWith('const crypto'))
-  .join('\n');
-const wrapper = fs.readFileSync(__dirname + '/wrappers/' + process.argv[2] + '.js', 'utf8').replace(/^\/\/ file:.*\n/, '');
-process.stdout.write("const crypto = require('crypto');\n" + core + '\n' + wrapper);
+const read = (f) => fs.readFileSync(__dirname + '/' + f, 'utf8');
+const strip = (s) => s.split('\n').filter((l) => !l.endsWith('// export') && !l.startsWith('const crypto')).join('\n');
+
+// Code nodes cannot import files, so the library is pasted whole into each one.
+function emit(name) {
+  const raw = read('wrappers/' + name + '.js');
+  if (raw.startsWith('// lib: access\n')) return strip(read('access.js')) + '\n' + raw.replace(/^.*\n/, '');
+  return "const crypto = require('crypto');\n" + strip(read('core.js')) + '\n' + raw.replace(/^\/\/ file:.*\n/, '');
+}
+
+module.exports = { emit };
+if (require.main === module) process.stdout.write(emit(process.argv[2]));

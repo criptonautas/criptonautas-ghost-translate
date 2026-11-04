@@ -6,6 +6,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const OPTIONAL_SEARCH = ['Upsert English Search', 'Delete Search Doc', 'Index Spanish'];
 const NEVER = '/$^/';
+const FALLBACK_NODES = ['DeepL Fallback', 'Fallback Usage Before', 'Fallback Usage After'];
 
 function check(c) {
   const problems = [];
@@ -23,13 +24,14 @@ const esc = (v) => JSON.stringify(String(v)).slice(1, -1);
 function fill(template, c) {
   let text = JSON.stringify(template);
   if (!c.deepl_glossary_id) text = text.split("glossary_id: '__GLOSSARY_ID__', ").join('').split(", glossary_id: '__GLOSSARY_ID__'").join('');
+  if (!c.deepl_fallback_glossary_id) text = text.split("glossary_id: '__FALLBACK_GLOSSARY_ID__', ").join('').split(", glossary_id: '__FALLBACK_GLOSSARY_ID__'").join('');
   const skipTitle = c.skip_title_regex ? 'new RegExp(' + JSON.stringify(c.skip_title_regex) + ", 'i')" : NEVER;
   const values = {
     WEBHOOK_PATH: c.webhook_path, SOURCE_URL: c.source_url, TARGET_URL: c.target_url,
     TYPESENSE_URL: c.typesense_url || '', TYPESENSE_SOURCE_COLLECTION: c.typesense_source_collection || '', TYPESENSE_TARGET_COLLECTION: c.typesense_target_collection || '',
     COVER_SERVICE_URL: c.cover_service_url || '', COVER_DEFAULT_CATEGORY: c.cover_default_category || '',
     GENERATED_COVER_REGEX: c.cover_service_url ? '/\\/cover(-\\d+)?\\.(webp|png)$/i' : NEVER,
-    DEEPL_API_URL: c.deepl_api_url || 'https://api-free.deepl.com', GLOSSARY_ID: c.deepl_glossary_id || '',
+    DEEPL_API_URL: c.deepl_api_url || 'https://api-free.deepl.com', GLOSSARY_ID: c.deepl_glossary_id || '', FALLBACK_GLOSSARY_ID: c.deepl_fallback_glossary_id || '',
     SOURCE_LANG: c.source_lang, TARGET_LANG: c.target_lang, SOURCE_HREFLANG: c.source_hreflang, TARGET_HREFLANG: c.target_hreflang,
     DATA_TABLE_ID: c.data_table_id, TRANSLATE_POST_WORKFLOW_ID: c.translate_post_workflow_id || '', SEARCH_INDEX_WORKFLOW_ID: c.search_index_workflow_id || '',
     SKIP_SLUGS: JSON.stringify(c.skip_slugs || []), SKIP_TITLE_REGEX: skipTitle, ALLOW_LOST: JSON.stringify(c.allow_lost || {}),
@@ -39,8 +41,21 @@ function fill(template, c) {
   if (left) throw new Error('Unfilled token: ' + left[0]);
   const wf = JSON.parse(text);
   if (!c.typesense_url) for (const n of wf.nodes) if (OPTIONAL_SEARCH.includes(n.name)) n.disabled = true;
+  if (!c.deepl_fallback) for (const name of FALLBACK_NODES) bypass(wf, name);
   if (c.error_workflow_id) wf.settings.errorWorkflow = c.error_workflow_id;
   return wf;
+}
+
+// Drops a node and hands its input straight to the node it fed.
+function bypass(wf, name) {
+  if (!wf.nodes.some((n) => n.name === name)) return;
+  const next = wf.connections[name].main[0];
+  delete wf.connections[name];
+  for (const out of Object.values(wf.connections)) for (const links of out.main) {
+    const i = links.findIndex((l) => l.node === name);
+    if (i >= 0) links.splice(i, 1, ...next);
+  }
+  wf.nodes = wf.nodes.filter((n) => n.name !== name);
 }
 
 // The sub-workflow ids only exist after the first import, so the callers wait for a second build.

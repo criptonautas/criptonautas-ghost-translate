@@ -80,12 +80,13 @@ test('allowLost tolerates only the named tag, and only in the wrapper for its sl
   assert.equal(c.sameShape('<p>a</p>', '<p><s>a</s></p>', ['s']), false);
   const { execFileSync } = require('node:child_process');
   const code = execFileSync('node', [__dirname + '/emit-node.js', 'finish'], { encoding: 'utf8' });
-  const run = (slug) => {
+  const run = (slug, main = [{ json: { translations: [{ text: '<p>plandemic</p>' }] } }], fallback) => {
     const prepared = c.prepare({ fields: {}, html: '<p>p<s>l</s>andemia</p>', state: null, en: null });
     const job = prepared.jobs.blocks[0];
     const data = {
       'Prepare Translation': [{ json: { kind: 'html', ids: [job.id], chars: 9, prepared, old_out: null } }],
-      'DeepL Translate': [{ json: { translations: [{ text: '<p>plandemic</p>' }] } }],
+      'DeepL Translate': main,
+      'DeepL Fallback': fallback,
       'Known Slugs': [{ json: {} }],
       Context: [{ json: { slug, type: 'posts' } }],
       'Fetch Source': [{ json: { posts: [{ feature_image: null }] } }],
@@ -98,6 +99,10 @@ test('allowLost tolerates only the named tag, and only in the wrapper for its sl
   assert.equal(run('expandir-dinero')[0].json.ok, true);
   assert.equal(run('circular-2')[0].json.ok, true);
   assert.throws(() => run('other'), /shape mismatch/);
+  const quota = [{ json: { error: { message: 'Quota exceeded' } } }];
+  assert.equal(run('circular-2', quota, [{ json: { translations: [{ text: '<p>plandemic</p>' }] } }])[0].json.ok, true);
+  assert.throws(() => run('circular-2', quota, [{ json: { error: { message: 'Quota exceeded too' } } }]), /0 of 1 texts: Quota exceeded \/ Quota exceeded too/);
+  assert.throws(() => run('circular-2', quota), /0 of 1 texts: Quota exceeded$/);
 });
 
 test('a self-closed div keeps its closer and an empty mount point is not junk', () => {

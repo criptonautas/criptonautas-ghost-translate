@@ -3,11 +3,16 @@ const prepared = prep[0].prepared;
 const sent = prep.filter((j) => j.kind !== 'none');
 let results = [];
 try { results = $('DeepL Translate').all(); } catch (e) { results = []; }
+// A chunk the main account fails (its quota ran out) is sent again with the fallback account, item for item.
+let fallback = [];
+try { fallback = $('DeepL Fallback').all() || []; } catch (e) { fallback = []; }
 const translations = { fields: {}, blocks: {}, alts: {} };
 const BUCKET = { text: 'fields', html: 'blocks', alt: 'alts' };
 sent.forEach((g, n) => {
-  const out = results[n] && results[n].json.translations;
-  if (!out || out.length !== g.ids.length) throw new Error('DeepL returned ' + (out ? out.length : 0) + ' of ' + g.ids.length + ' texts');
+  const tries = [results[n], fallback[n]].map((r) => (r && r.json) || {});
+  const out = (tries.find((j) => j.translations) || {}).translations;
+  const why = tries.map((j) => j.error && (j.error.message || JSON.stringify(j.error))).filter(Boolean).join(' / ');
+  if (!out || out.length !== g.ids.length) throw new Error('DeepL returned ' + (out ? out.length : 0) + ' of ' + g.ids.length + ' texts' + (why ? ': ' + why : ''));
   g.ids.forEach((id, k) => { translations[BUCKET[g.kind]][id] = out[k].text; });
 });
 // Dry-run rows are not real English pages, so they must not turn links into en.criptonautas.co.

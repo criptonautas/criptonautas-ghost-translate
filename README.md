@@ -30,6 +30,7 @@ Keeps a second Ghost site as a translated twin of the first one, through n8n and
    | `source-ghost-admin` | Ghost Admin API, source site |
    | `target-ghost-admin` | Ghost Admin API, target site |
    | `deepl` | DeepL API |
+   | `deepl-fallback` | DeepL API, second account (only with `deepl_fallback`) |
    | `typesense-source-write`, `typesense-target-write` | Header Auth, `X-TYPESENSE-API-KEY` |
    | `cover-service-token` | Header Auth |
 
@@ -66,6 +67,7 @@ The batch also runs every day at 05:30, to catch anything a webhook missed. Runs
 | Key | Effect |
 |---|---|
 | `deepl_glossary_id` | Uses a DeepL glossary. |
+| `deepl_fallback`, `deepl_fallback_glossary_id` | Sends again, with a second DeepL account, any chunk the first one fails, such as when its quota runs out. A glossary belongs to one account, so the second needs its own copy. The batch reports the usage of both. |
 | `typesense_url`, `typesense_source_collection`, `typesense_target_collection` | Keeps both search collections current. Empty turns those nodes off. Without search you can also skip `search_index_workflow_id`. |
 | `cover_service_url`, `cover_default_category` | Draws a new cover for images named `cover.webp` or `cover.png` (or `cover-1.webp`). Empty shares every image by URL. |
 | `skip_slugs`, `skip_title_regex` | Posts that are never translated. |

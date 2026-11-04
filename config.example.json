@@ -12,6 +12,8 @@
   "error_workflow_id": "",
   "deepl_api_url": "https://api-free.deepl.com",
   "deepl_glossary_id": "",
+  "deepl_fallback": false,
+  "deepl_fallback_glossary_id": "",
   "typesense_url": "",
   "typesense_source_collection": "",
   "typesense_target_collection": "",

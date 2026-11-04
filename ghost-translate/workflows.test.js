@@ -10,7 +10,7 @@ const ROOT = path.join(__dirname, '..');
 const NAMES = ['ghost-translate-post', 'ghost-translate-sync', 'ghost-translate-batch', 'ghost-search-index'];
 const load = (n) => JSON.parse(fs.readFileSync(path.join(ROOT, 'workflows', n + '.json'), 'utf8'));
 const config = { source_url: 'https://a.test', target_url: 'https://b.test', source_lang: 'ES', target_lang: 'EN-US', source_hreflang: 'es', target_hreflang: 'en', webhook_path: 'x'.repeat(32), data_table_id: 't1', translate_post_workflow_id: 'w1', search_index_workflow_id: 'w2' };
-const full = { ...config, typesense_url: 'https://s.test', typesense_source_collection: 'es', typesense_target_collection: 'en', cover_service_url: 'http://cover:8000', cover_default_category: 'News', deepl_glossary_id: 'g1', skip_slugs: ['terms'], skip_title_regex: '^DRAFT', allow_lost: { p: ['s'] }, error_workflow_id: 'e1' };
+const full = { ...config, typesense_url: 'https://s.test', typesense_source_collection: 'es', typesense_target_collection: 'en', cover_service_url: 'http://cover:8000', cover_default_category: 'News', deepl_glossary_id: 'g1', deepl_fallback: true, deepl_fallback_glossary_id: 'g2', skip_slugs: ['terms'], skip_title_regex: '^DRAFT', allow_lost: { p: ['s'] }, error_workflow_id: 'e1' };
 
 test('templates carry nothing private', () => {
   for (const n of [...NAMES]) {
@@ -46,12 +46,19 @@ test('without optional services the nodes are off and the options gone', () => {
   const deepl = post.nodes.find((n) => n.name === 'DeepL Translate').parameters.jsonBody;
   assert.doesNotMatch(deepl, /glossary_id/);
   assert.match(post.nodes.find((n) => n.name === 'Prepare Translation').parameters.jsCode, /const GENERATED = \/\$\^\//);
+  assert.equal(post.nodes.some((n) => n.name === 'DeepL Fallback'), false);
+  assert.equal(post.connections['DeepL Translate'].main[0][0].node, 'Finish Translation');
+  const batch = fill(load('ghost-translate-batch'), config);
+  assert.equal(batch.nodes.some((n) => /^Fallback/.test(n.name)), false);
+  assert.deepEqual([batch.connections['Usage Before'].main[0][0].node, batch.connections['Usage After'].main[0][0].node], ['List Posts', 'Summary']);
 });
 
 test('a full config reaches the nodes that use it', () => {
   const post = fill(load('ghost-translate-post'), full);
   assert.equal(post.settings.errorWorkflow, 'e1');
   assert.match(post.nodes.find((n) => n.name === 'DeepL Translate').parameters.jsonBody, /glossary_id: 'g1'/);
+  assert.match(post.nodes.find((n) => n.name === 'DeepL Fallback').parameters.jsonBody, /glossary_id: 'g2'/);
+  assert.equal(post.connections['DeepL Fallback'].main[0][0].node, 'Finish Translation');
   const scope = post.nodes.find((n) => n.name === 'Out Of Scope').parameters.conditions.conditions[0].leftValue;
   assert.match(scope, /\["terms"\]/);
   assert.match(scope, /new RegExp\("\^DRAFT", 'i'\)/);

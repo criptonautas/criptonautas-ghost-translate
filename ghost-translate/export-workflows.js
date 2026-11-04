@@ -7,7 +7,7 @@ const { emit } = require('./emit-node');
 const OUT = path.join(__dirname, '..', 'workflows');
 const FILES = { 'ghost-translate-post': 'ghost-translate-post', 'ghost-translate-sync': 'ghost-translate-sync', 'ghost-translate-batch': 'ghost-translate-batch', 'ghost-search-index-es': 'ghost-search-index' };
 const CODE_NODES = { 'Prepare Translation': 'prepare', 'Finish Translation': 'finish', 'Build Ghost Payload': 'payload', 'Build State Row': 'snapshot', 'Build Search Doc': 'search-doc', 'Build Source Head': 'source-head', 'Check Access': 'access-check', 'Apply Access': 'access-apply', 'Gate Search Doc': 'search-gate' };
-const CREDENTIALS = { 'nautas-ghost-api': 'source-ghost-admin', 'ghost-en-admin-api': 'target-ghost-admin', 'DeepL account': 'deepl', 'typesense-ghost-en-write': 'typesense-target-write', 'typesense-ghost-write': 'typesense-source-write', 'criptonautas-featured-ghost-cover-token': 'cover-service-token' };
+const CREDENTIALS = { 'nautas-ghost-api': 'source-ghost-admin', 'ghost-en-admin-api': 'target-ghost-admin', 'DeepL account': 'deepl', 'deepl-api-2': 'deepl-fallback', 'typesense-ghost-en-write': 'typesense-target-write', 'typesense-ghost-write': 'typesense-source-write', 'criptonautas-featured-ghost-cover-token': 'cover-service-token' };
 
 // Ids of the production instance stay out of git: export-private.json maps each one to its token.
 const PRIVATE_FILE = path.join(__dirname, '..', 'export-private.json');

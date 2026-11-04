@@ -16,8 +16,8 @@ for (const { json: r } of $('Known Slugs').all()) {
   // Rows from before the English slugs carry no en_slug: their English slug is still the Spanish one.
   if (r.slug && !String(r.slug).startsWith('dry:')) slugs[r.slug] = r.en_slug || r.slug;
 }
-// The owner accepts losing the strikethrough in this post's p<s>l</s>andemia wordplay.
-const ALLOW_LOST = { 'expandir-dinero': ['s'] };
+// The owner accepts losing the strikethrough in these posts' p<s>l</s>andemia wordplay.
+const ALLOW_LOST = { 'expandir-dinero': ['s'], 'circular-2': ['s'] };
 const f = finish({ prepared, translations, slugs, allowLost: ALLOW_LOST[$('Context').first().json.slug] || [] });
 if (!f.ok) throw new Error('Translation rejected: ' + f.problems.join('; '));
 const ctx = $('Context').first().json;

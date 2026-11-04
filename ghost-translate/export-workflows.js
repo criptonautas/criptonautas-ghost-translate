@@ -33,8 +33,8 @@ const TOKENS = [
   ['/^FUSIONADO/i', '__SKIP_TITLE_REGEX__'],
   ["?.name ?? 'Criptonautas'", "?.name ?? '__COVER_DEFAULT_CATEGORY__'"],
   ['/\\\\/cover(-\\\\d+)?\\\\.(webp|png)$/i', '__GENERATED_COVER_REGEX__'],
-  ["// The owner accepts losing the strikethrough in this post's p<s>l</s>andemia wordplay.", '// Per post exceptions: slug to the inline tags a translation may drop.'],
-  ["{ 'expandir-dinero': ['s'] }", '__ALLOW_LOST__'],
+  ["// The owner accepts losing the strikethrough in these posts' p<s>l</s>andemia wordplay.", '// Per post exceptions: slug to the inline tags a translation may drop.'],
+  ["{ 'expandir-dinero': ['s'], 'circular-2': ['s'] }", '__ALLOW_LOST__'],
 ];
 const tokenize = (text) => TOKENS.reduce((t, [from, to]) => t.split ? (from instanceof RegExp ? t.replace(from, to) : t.split(from).join(to)) : t, text);
 

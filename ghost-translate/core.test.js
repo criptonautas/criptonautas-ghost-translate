@@ -96,6 +96,7 @@ test('allowLost tolerates only the named tag, and only in the wrapper for its sl
     return new Function('$', 'require', code)($, require);
   };
   assert.equal(run('expandir-dinero')[0].json.ok, true);
+  assert.equal(run('circular-2')[0].json.ok, true);
   assert.throws(() => run('other'), /shape mismatch/);
 });
 

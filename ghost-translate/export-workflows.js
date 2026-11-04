@@ -29,7 +29,7 @@ const TOKENS = [
   ['hreflang=\\"en\\"', 'hreflang=\\"__TARGET_HREFLANG__\\"'],
   ['collections/ghost_en/', 'collections/__TYPESENSE_TARGET_COLLECTION__/'],
   ['collections/ghost/', 'collections/__TYPESENSE_SOURCE_COLLECTION__/'],
-  ["['terminos','privacidad']", '__SKIP_SLUGS__'],
+  ["['terminos','privacidad','home']", '__SKIP_SLUGS__'],
   ['/^FUSIONADO/i', '__SKIP_TITLE_REGEX__'],
   ["?.name ?? 'Criptonautas'", "?.name ?? '__COVER_DEFAULT_CATEGORY__'"],
   ['/\\\\/cover(-\\\\d+)?\\\\.(webp|png)$/i', '__GENERATED_COVER_REGEX__'],

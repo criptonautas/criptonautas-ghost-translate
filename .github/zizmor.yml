@@ -1,0 +1,8 @@
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # Reusable workflows the lockfile cannot pin yet (gh-actions-lock#179)
+        discourse/*: ref-pin
+        criptonautas/*: ref-pin
+        "*": hash-pin
